@@ -52,17 +52,6 @@ void SRH_init()
 		tREQtable[i].status = SRH_REQ_EMPTY;
 	}
 
-	extern uint64_t global_var;
-	uart_print("GLOBAL: ");
-	uart_print_hex64((uint64_t)&reqCount);
-	uart_print("\n");
-
-	uint64_t *ptr = &reqCount;
-	//	udb();
-	*ptr = 123;
-	//	reqCount = 0;
-	//udb();
-
 	// init mutex
 	u_mutex_init(&reqMtx);
 

@@ -64,14 +64,14 @@ typedef struct
 #pragma pack(pop)
 
 void char_to_utf16_buf(const char* _char, uint16_t* _wchar){
-    size_t len = strlen(_char, 10000) + 1; // include null terminator
+    size_t len = strlen(_char, 512) + 1; // include null terminator
     for(size_t i = 0; i < len; i++){
         _wchar[i] = (uint16_t)(unsigned char)_char[i];
     }
 }
 
 void utf16_to_char_buf(uint16_t* _wchar, char* _char){
-    size_t len = wstrlen(_wchar, 10000) + 1; // include null terminator
+    size_t len = wstrlen(_wchar, 512) + 1; // include null terminator
     for(size_t i = 0; i < len; i++){
         _char[i] = (unsigned char)_wchar[i];
     }
@@ -204,8 +204,8 @@ uos_result format_sd_gpt_with_pre_partitions(uobject_ref device_ref){
     block_of_entries[0].attributes = 0x0;
     block_of_entries[0].starting_lba = first_partitionable_lba;
     block_of_entries[0].ending_lba = first_partitionable_lba + ((SIZE_1M * 512) / 512) - 1; // 512MB
-    first_partitionable_lba += ((SIZE_1M * 64) / 512);
-    not_allocated_lba_count -= ((SIZE_1M * 64) / 512);
+    first_partitionable_lba += ((SIZE_1M * 512) / 512);
+    not_allocated_lba_count -= ((SIZE_1M * 512) / 512);
 
     // UFS for uOS
     char_to_utf16_buf("uOS-UFS1", block_of_entries[1].patrtition_name);
@@ -425,8 +425,8 @@ uos_result get_partition_from_device(uobject_ref device_ref, partition_info* par
 
     // read main entry array
     size_t total_array_size =  (main_head->size_of_partition_entry * main_head->number_of_partition_entries);
-    GPT_PARTITION_ENTRY* entry_array = kmalloc(total_array_size); // main
-    GPT_PARTITION_ENTRY* alt_entry_array = kmalloc(total_array_size);
+    GPT_PARTITION_ENTRY* entry_array = kmalloc(((total_array_size + 511))); // main
+    GPT_PARTITION_ENTRY* alt_entry_array = kmalloc(((total_array_size + 511)));
 
     if(emmc->common.read(main_head->partition_entry_lba, ((total_array_size + 511) / lba_size), (uint8_t*)entry_array) == FAIL){
         udbP("UFS GPT ERROR: Failed to read main entry array!");
@@ -455,6 +455,18 @@ uos_result get_partition_from_device(uobject_ref device_ref, partition_info* par
     // check crc32 for main array
     if(crc32_aarch64((uint8_t*)entry_array, (main_head->size_of_partition_entry * main_head->number_of_partition_entries)) != main_head->partition_entry_array_crc32){
             udbP("UFS GPT WARN: Main entry array is corrupted! Repairing.");
+
+            if(main_head->partition_entry_array_crc32 != alt_head->partition_entry_array_crc32){
+                udbP("UFS GPT ERROR: Main & Alternative heads are conflicting! Failed to repair heads!");
+                pfree(main_head, 1);
+                pfree(alt_head, 1);
+                kfree(entry_array);
+                kfree(alt_entry_array);
+                if(uobject_close_object(device_ref) == FAIL){
+                    udbP("UFS STORAGE DEVICE ERROR: Failed to close storage device!");
+                }
+                return FAIL;
+            }
 
             // try to repair main entry array with alternative entry array
             
@@ -491,13 +503,25 @@ uos_result get_partition_from_device(uobject_ref device_ref, partition_info* par
             if(crc32_aarch64((uint8_t*)alt_entry_array, (main_head->size_of_partition_entry * main_head->number_of_partition_entries)) != alt_head->partition_entry_array_crc32){
                 udbP("UFS GPT WARN: Alternative entry array is corrupted! Repairing.");
 
+                if(main_head->partition_entry_array_crc32 != alt_head->partition_entry_array_crc32){
+                    udbP("UFS GPT ERROR: Main & Alternative heads are conflicting! Failed to repair heads!");
+                    pfree(main_head, 1);
+                    pfree(alt_head, 1);
+                    kfree(entry_array);
+                    kfree(alt_entry_array);
+                    if(uobject_close_object(device_ref) == FAIL){
+                        udbP("UFS STORAGE DEVICE ERROR: Failed to close storage device!");
+                    }
+                    return FAIL;
+                }
+
                 // try to repair main entry array with alternative entry array
                 
                 // repair alternative
                 // write to alternative
                 memcpy(alt_entry_array, entry_array, total_array_size);
                 if(emmc->common.write(alt_head->partition_entry_lba, ((total_array_size + 511) / lba_size), (uint8_t*)alt_entry_array) == FAIL){
-                    udbP("UFS GPT ERROR: Failed to write repair to main entry array!");
+                    udbP("UFS GPT ERROR: Failed to write repair to alternative entry array!");
                     pfree(main_head, 1);
                     pfree(alt_head, 1);
                     kfree(entry_array);
@@ -532,6 +556,10 @@ uos_result get_partition_from_device(uobject_ref device_ref, partition_info* par
     kfree(entry_array);
     kfree(alt_entry_array);
 
+    if(uobject_close_object(device_ref) == FAIL){
+        udbP("UFS STORAGE DEVICE ERROR: Failed to close storage device!");
+    }
+
     return SUCCESS;
 }
 
@@ -552,6 +580,7 @@ uint64_t mount_all_partitions(uobject_ref device_ref){
 
     if(get_partition_from_device(device_ref, partitions, 128) != SUCCESS){
         udbP("UFS GPT ERROR: Failed to read partitions!");
+        kfree(partitions);
         return 0;
     }
 
@@ -571,6 +600,7 @@ uint64_t mount_all_partitions(uobject_ref device_ref){
         }
     }
 
+    kfree(partitions);
     return mounted_partition_count;
 }
 

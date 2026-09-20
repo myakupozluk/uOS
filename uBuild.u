@@ -1,0 +1,18 @@
+VER 120
+
+COMPILER "aarch64-none-elf-gcc"
+LINKER "aarch64-none-elf-ld"
+
+FILTER filter
+
+INCEXT filter ".c"
+
+LIST to_compile filter "src"
+
+KEEP changed to_compile
+
+COMPILE compiled_out to_compile " -MMD -I src/ -g -Wall -O0 -fPIE -ffreestanding -nostdinc -nostdlib -mcpu=cortex-a72 -Wno-address-of-packed-member -Wno-pointer-to-int-cast -Wno-attributes -Wno-unused-variable -Wno-int-conversion -Wno-int-to-pointer-cast -Wno-array-bounds -Wno-unused-but-set-variable "
+RUN "aarch64-none-elf-gcc -c src/boot.S -o build/objects/boot.o -g -Wall -O0 -fPIE -ffreestanding -nostdinc -nostdlib -mcpu=cortex-a72 -Wno-address-of-packed-member -Wno-pointer-to-int-cast -Wno-attributes -Wno-unused-variable -Wno-int-conversion -Wno-int-to-pointer-cast -Wno-array-bounds -Wno-unused-but-set-variable"
+ADD compiled_out "build/objects/boot.o"
+LINK compiled_out "uOSkernel8.elf" " -nostdlib -Map=build/kernel.map -T src/link.ld "
+RUN "aarch64-none-elf-objcopy -O binary build/uOSkernel8.elf build/uOSkernel8.img"
