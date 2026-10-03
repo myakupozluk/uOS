@@ -59,9 +59,15 @@ void _SRH_HANDLE_kreloc_(void *args)
 		return;
 	}
 
-	memcpy(req->i_old_block, req->o_new_block, req->i_old_size);
+	size_t copy_size = req->i_old_size;
+	if(req->i_size < copy_size){
+		copy_size = req->i_size;
+	}
 
-	kfree(req->i_old_block);
+	if(req->i_old_block != nullptr){
+		memcpy(req->o_new_block, req->i_old_block, copy_size);
+		UHP_free(req->i_old_block, &base_kernel_heap_context);
+	}
 	return;
 }
 
@@ -136,9 +142,15 @@ void _SRH_HANDLE_kvreloc_(void *args)
 		return;
 	}
 
-	memcpy(req->i_old_block, req->o_new_block, req->i_old_size);
+	size_t copy_size = req->i_old_size;
+	if(req->i_size < copy_size){
+		copy_size = req->i_size;
+	}
 
-	kvfree(req->i_old_block);
+	if(req->i_old_block != nullptr){
+		memcpy(req->o_new_block, req->i_old_block, copy_size);
+		UHP_free(req->i_old_block, &base_kernel_vheap_context);
+	}
 	return;
 }
 
@@ -271,7 +283,7 @@ void memfill(volatile void *ptr, void *filler, size_t fSize, size_t times)
 	}
 }
 
-void memcpy(void *dst, void *src, size_t len)
+void memcpy(void *dst, const void *src, size_t len)
 {
 	for (size_t i = 0; i < len; i++)
 	{
@@ -279,7 +291,7 @@ void memcpy(void *dst, void *src, size_t len)
 	}
 }
 
-int memcmp(void *src1, void *src2, size_t len)
+int memcmp(const void *src1, const void *src2, size_t len)
 {
 	int result = 0;
 	for (size_t i = 0; i < len; i++)

@@ -148,6 +148,19 @@ void uart_print(const char *str)
 	}
 }
 
+void uart_print_w(const wide_char_t *str)
+{
+    while (*str)
+    {
+        if (*str <= 0x7F)
+            uart_send((uint8_t)*str);
+        else
+            uart_send('?');
+
+        str++;
+    }
+}
+
 void uart_print_hex8(uint8_t hex)
 {
 	char tmpstr[30];

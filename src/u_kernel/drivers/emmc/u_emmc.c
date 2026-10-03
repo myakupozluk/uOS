@@ -393,6 +393,8 @@ bool emmc_wait_card_transfer_state(){
 
 // returns EMMC_FAIL or EMMC_SUCCESS
 uos_result emmc_init_sd_card(){
+    emmc_init();
+    delay_ms(200);
     *EMMC_INTERRUPT_STATUS_ENABLE_REGISTER |= EMMC_IRQ_CMD_COMPLETE_ENABLE_BIT | EMMC_IRQ_TRANSFER_COMPLETE_ENABLE_BIT | EMMC_IRQ_DMA_ENABLE_BIT; // enable irqs
     *EMMC_ERROR_INTERRUPT_STATUS_ENABLE_REGISTER = 0xFFFF; // enable all of error interrupts
 
@@ -550,6 +552,7 @@ uos_result emmc_init_sd_card(){
         dev.type = UDEVICE_TYPE_EMMC_STORAGE;       
         udevice_emmc_storage_function_pointers symbol_table;
         symbol_table.common.get_lba_count = emmc_get_lba_count_handle;
+        symbol_table.common.get_lba_size = emmc_get_lba_size_handle;
         symbol_table.common.read = emmc_read_sd_card;
         symbol_table.common.write = emmc_write_sd_card;
         symbol_table.common.safe_shutdown = nullptr; // change this later
@@ -576,22 +579,27 @@ uos_result emmc_init_sd_card(){
     return SUCCESS;
 }
 
+time_point last_low_buffer_perform_msg = 0;
+
 uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* buffer){
 
     uint8_t* orginal_buffer = buffer;
     uint8_t* low_buffer = nullptr;
-    if((uint64_t)buffer > SIZE_1G){
-        udbP("EMMC SD WARN: EMMC Can not access memory addresses over 1GB! Performing low buffer.");
+    if((uint64_t)buffer > SIZE_1G || (uint64_t)(buffer + (block_count * csd.max_read_data_block_length)) > SIZE_1G){
+        if(tp_to_ms(get_now() - last_low_buffer_perform_msg) >= 1000){
+            udbP("EMMC SD WARN: EMMC Can not access memory addresses over 1GB! Performing low buffer.");
+            last_low_buffer_perform_msg = get_now();
+        }
 
         // try allocating low buffer
-        low_buffer = kmalloc(block_count * 512);
+        low_buffer = kvmalloc(block_count * 512);
         if(low_buffer == nullptr){
             udbP("EMMC SD ERROR: Low buffer perform failed!");
             return FAIL;
         }
         if((uint64_t)low_buffer > SIZE_1G){
             udbP("EMMC SD ERROR: Low buffer perform failed!");
-            kfree(low_buffer);
+            kvfree(low_buffer);
             return FAIL;
         }else{
             memcpy(low_buffer, buffer, block_count * 512);
@@ -611,13 +619,13 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
         // read single (CMD17)
         if(_emmc_send_sd_command_(SD_CMD(17), block_index, true, true, true, CMD_RESP_48)){
             udbP("EMMC SD ERROR: CMD17 failed!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
         if(!check_r1_response(*EMMC_RESPONSE0_REGISTER)){
             udbP("EMMC SD ERROR: CMD17 failed2!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
@@ -642,13 +650,13 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
                 *EMMC_INTERRUPT_STATUS_REGISTER = EMMC_IRQ_ERROR_BIT; // reset irq
                 *EMMC_ERROR_INTERRUPT_STATUS_REGISTER = 0xFFFF; // reset error irqs
                 udbP("EMMC ERROR: DMA/Single Read error!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
 
             if(tp_to_ms(get_now() - start) > 1000){
                 udbP("EMMC ERROR: DMA/Single Read irq timeout!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
         }
@@ -656,7 +664,7 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
         emmc_wait_card_transfer_state();
         if(low_buffer != nullptr){
             memcpy(orginal_buffer, low_buffer, block_count * 512);
-            kfree(low_buffer);
+            kvfree(low_buffer);
         }
         return SUCCESS;
     }else{
@@ -666,13 +674,13 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
         // read multiple (CMD18)
         if(_emmc_send_sd_command_(SD_CMD(18), block_index, true, true, true, CMD_RESP_48)){
             udbP("EMMC SD ERROR: CMD18 failed!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
         if(!check_r1_response(*EMMC_RESPONSE0_REGISTER)){
             udbP("EMMC SD ERROR: CMD18 failed2!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
@@ -697,13 +705,13 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
                 *EMMC_INTERRUPT_STATUS_REGISTER = EMMC_IRQ_ERROR_BIT; // reset irq
                 *EMMC_ERROR_INTERRUPT_STATUS_REGISTER = 0xFFFF; // reset error irqs
                 udbP("EMMC ERROR: DMA/Multi Read error!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
 
             if(tp_to_ms(get_now() - start) > 1000){
                 udbP("EMMC ERROR: DMA/Multi Read irq timeout!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
         }
@@ -711,11 +719,11 @@ uos_result emmc_read_sd_card(uint64_t block_index, size_t block_count, uint8_t* 
         emmc_wait_card_transfer_state();
         if(low_buffer != nullptr){
             memcpy(orginal_buffer, low_buffer, block_count * 512);
-            kfree(low_buffer);
+            kvfree(low_buffer);
         }
         return SUCCESS;
     }
-    if(low_buffer != nullptr) kfree(low_buffer);
+    if(low_buffer != nullptr) kvfree(low_buffer);
     return FAIL;
 }
 
@@ -723,18 +731,21 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
 
     uint8_t* orginal_buffer = buffer;
     uint8_t* low_buffer = nullptr;
-    if((uint64_t)buffer > SIZE_1G){
-        udbP("EMMC SD WARN: EMMC Can not access memory addresses over 1GB! Performing low buffer.");
+    if((uint64_t)buffer > SIZE_1G || (uint64_t)(buffer + (block_count * csd.max_read_data_block_length)) > SIZE_1G){
+        if(tp_to_ms(get_now() - last_low_buffer_perform_msg) >= 1000){
+            udbP("EMMC SD WARN: EMMC Can not access memory addresses over 1GB! Performing low buffer.");
+            last_low_buffer_perform_msg = get_now();
+        }
 
         // try allocating low buffer
-        low_buffer = kmalloc(block_count * 512);
+        low_buffer = kvmalloc(block_count * 512);
         if(low_buffer == nullptr){
             udbP("EMMC SD ERROR: Low buffer perform failed!");
             return FAIL;
         }
         if((uint64_t)low_buffer > SIZE_1G){
             udbP("EMMC SD ERROR: Low buffer perform failed!");
-            kfree(low_buffer);
+            kvfree(low_buffer);
             return FAIL;
         }else{
             memcpy(low_buffer, buffer, block_count * 512);
@@ -754,13 +765,13 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
         // write single (CMD24)
         if(_emmc_send_sd_command_(SD_CMD(24), block_index, true, true, true, CMD_RESP_48_BUSY)){
             udbP("EMMC SD ERROR: CMD24 failed!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
         if(!check_r1_response(*EMMC_RESPONSE0_REGISTER)){
             udbP("EMMC SD ERROR: CMD24 failed2!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
@@ -785,20 +796,20 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
                 *EMMC_INTERRUPT_STATUS_REGISTER = EMMC_IRQ_ERROR_BIT; // reset irq
                 *EMMC_ERROR_INTERRUPT_STATUS_REGISTER = 0xFFFF; // reset error irqs
                 udbP("EMMC ERROR: DMA/Single Write error!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
 
             if(tp_to_ms(get_now() - start) > 1000){
                 udbP("EMMC ERROR: DMA/Single Write irq timeout!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
         }
 
         wait_r1busy();
         emmc_wait_card_transfer_state();
-        if(low_buffer != nullptr) kfree(low_buffer);
+        if(low_buffer != nullptr) kvfree(low_buffer);
         return SUCCESS;
     }else{
         // set flags
@@ -807,13 +818,13 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
         // read multiple (CMD25)
         if(_emmc_send_sd_command_(SD_CMD(25), block_index, true, true, true, CMD_RESP_48_BUSY)){
             udbP("EMMC SD ERROR: CMD25 failed!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
         if(!check_r1_response(*EMMC_RESPONSE0_REGISTER)){
             udbP("EMMC SD ERROR: CMD25 failed2!");
-            if(low_buffer != nullptr) kfree(low_buffer);
+            if(low_buffer != nullptr) kvfree(low_buffer);
             return FAIL;
         }
 
@@ -838,23 +849,23 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
                 *EMMC_INTERRUPT_STATUS_REGISTER = EMMC_IRQ_ERROR_BIT; // reset irq
                 *EMMC_ERROR_INTERRUPT_STATUS_REGISTER = 0xFFFF; // reset error irqs
                 udbP("EMMC ERROR: DMA/Multi Write error!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
 
             if(tp_to_ms(get_now() - start) > 1000){
                 udbP("EMMC ERROR: DMA/Multi Write irq timeout!");
-                if(low_buffer != nullptr) kfree(low_buffer);
+                if(low_buffer != nullptr) kvfree(low_buffer);
                 return FAIL;
             }
         }
 
         wait_r1busy();
         emmc_wait_card_transfer_state();
-        if(low_buffer != nullptr) kfree(low_buffer);
+        if(low_buffer != nullptr) kvfree(low_buffer);
         return SUCCESS;
     }
-    if(low_buffer != nullptr) kfree(low_buffer);
+    if(low_buffer != nullptr) kvfree(low_buffer);
     return FAIL;
 }
 
@@ -862,6 +873,15 @@ size_t emmc_get_lba_count_handle(){
     if (device_ref != UOBJECT_NOT_DEFINED)
     {
         return (csd.device_size / csd.max_read_data_block_length);
+    }else{
+        return 0;
+    }
+}
+
+size_t emmc_get_lba_size_handle(){
+    if (device_ref != UOBJECT_NOT_DEFINED)
+    {
+        return csd.max_read_data_block_length;
     }else{
         return 0;
     }

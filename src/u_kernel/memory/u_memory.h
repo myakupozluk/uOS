@@ -27,8 +27,8 @@ void* vpalloc(size_t page_count);
 void vpfree(void* first_page, size_t page_count );
 
 // standart util
-void memcpy(void *dst, void *src, size_t size);
+void memcpy(void *dst, const void *src, size_t size);
 void memset(void *dst, uint8_t val, size_t size);
 void memfill(volatile void *ptr, void *filler, size_t fSize, size_t times);
-int memcmp(void *src1, void *src2, size_t len);
+int memcmp(const void *src1, const void *src2, size_t len);
 #define RAW_MOVE(dst, src) memcpy(&dst, &src, sizeof(src)); // this macro prevents alignment faults on weird structs

@@ -24,17 +24,17 @@
 #define UOBJECT_FLAG_EXTERNAL ONEBIT(3)
 
 // base kernel object
-// 256 bytes (32 entry per page)
+// 512 bytes (16 entry per page)
 typedef struct{
-    uint64_t type; // type id
-    uint64_t kernel_idx; // index in table (not used)
-    uint64_t flags; // flags
-    u_mutex ref_lock; // 8 byte refrance lock
-    uint64_t ref_count; // count of referances for garbage collection
-    char name[48]; // object name
-    uint8_t padding[8];
+    uint64_t type; // type id [8]
+    uint64_t kernel_idx; // index in table (not used) [16]
+    uint64_t flags; // flags [24]
+    u_mutex ref_lock; // 8 byte refrance lock [32]
+    uint64_t ref_count; // count of referances for garbage collection [40]
+    char name[48]; // object name [88]
+    uint8_t padding[8]; // [96]
     uint8_t obj_data[512 - (32 + 48 + 8 + 8)]; // object specific data (16 byte aligned)
-}uobject;
+} __attribute__((aligned(16))) uobject;
 #define UOBJECT_MAX_DATA_SIZE (416ULL)
 
 typedef uint64_t uobject_ref;
@@ -55,6 +55,7 @@ uos_result uobject_close_object(uobject_ref ref);
 
 // util
 udevice_emmc_storage_function_pointers* _open_emmc_storage_device_(uobject_ref device_ref);
+udevice_storage_function_pointers* _open_storage_device_(uobject_ref device_ref);
 
 u_fs_interface* _open_filesystem_interface_(uobject_ref device_ref);
 

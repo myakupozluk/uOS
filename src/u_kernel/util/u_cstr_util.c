@@ -26,25 +26,23 @@ u64 pof(u64 base, u64 exponent)
 
 size_t strlen(const char *str, size_t maxSize)
 {
-	size_t res = 0;
-	while (*(str + res) != '\0')
-	{
-		if (res > maxSize)
-			return 0;
-		res++;
-	}
-	return res;
+    for (size_t i = 0; i < maxSize; i++)
+    {
+        if (str[i] == '\0')
+            return i;
+    }
+
+    return 0;
 }
 
-size_t wstrlen(uint16_t *str, size_t maxSize){
-	size_t res = 0;
-	while (*(str + res) != '\0')
-	{
-		if (res > maxSize)
-			return 0;
-		res++;
-	}
-	return res;
+size_t wstrlen(const wide_char_t *str, size_t maxSize){
+    for (size_t i = 0; i < maxSize; i++)
+    {
+        if (str[i] == '\0')
+            return i;
+    }
+
+    return 0;
 }
 
 char *ulltoa(uint64_t value, char *buf)
@@ -199,6 +197,15 @@ int strcmp(const char *str0, const char *str1)
 	return (unsigned char)(*str0) - (unsigned char)(*str1);
 }
 
+int wstrcmp(const wide_char_t *str0, const wide_char_t *str1){
+	while (*str0 != '\0' && (*str0 == *str1))
+	{
+		str0++;
+		str1++;
+	}
+	return (wide_char_t)(*str0) - (wide_char_t)(*str1);
+}
+
 char *append_strs(char **strs, size_t count)
 {
 	size_t totalSize = 0;
@@ -220,7 +227,7 @@ char *append_strs(char **strs, size_t count)
 	return buffer;
 }
 
-void parse_read(char* output, char* input, char seperator, size_t index)
+void parse_read(char* output, const char* input, char seperator, size_t index)
 {
 	size_t len = strlen(input, 4096);
 	size_t current = 0;
@@ -248,7 +255,101 @@ void parse_read(char* output, char* input, char seperator, size_t index)
 	return;
 }
 
-size_t parse_read_count(char* input, char seperator){
+void w_parse_read(wide_char_t* output, const wide_char_t* input, wide_char_t seperator, size_t index){
+	size_t len = wstrlen(input, 4096);
+	size_t current = 0;
+	size_t begin = 0;
+	for (size_t i = 0; i < len; i++)
+	{
+		if(input[i] == seperator){
+			if(current == index){
+				memcpy(output, &input[begin], (i - begin) * sizeof(wide_char_t));
+				output[(i - begin)] = '\0';
+				return;
+			}
+			current++;
+			begin = i + 1;
+		}
+	}
+	if(current == index){
+		memcpy(output, &input[begin], (len - begin) * sizeof(wide_char_t));
+		output[(len - begin)] = '\0';
+		return;
+	}
+
+	// not found
+	output[0] = '\0';
+	return;
+}
+
+void w_parse_read_multiple(wide_char_t* output,  const wide_char_t* input, wide_char_t separator, size_t start_index, size_t count){
+    size_t len = wstrlen(input, 4096);
+
+    if (len == 0 || count == 0)
+    {
+        output[0] = '\0';
+        return;
+    }
+
+    size_t separator_count = 0;
+    size_t begin = 0;
+
+    for (size_t i = 0; i < len; i++)
+    {
+        if (input[i] == separator)
+        {
+            separator_count++;
+
+            if (separator_count == start_index)
+            {
+                begin = i;
+                break;
+            }
+        }
+    }
+
+    if (start_index != 0 && separator_count < start_index)
+    {
+        output[0] = '\0';
+        return;
+    }
+
+    size_t end = len;
+
+    if (count != UINT64_MAX)
+    {
+        size_t found = 0;
+
+        for (size_t i = begin; i < len; i++)
+        {
+            if (input[i] == separator)
+            {
+                found++;
+
+                if (i == begin)
+                    continue;
+
+                if (found == count)
+                {
+                    end = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    size_t output_len = end - begin;
+
+    memcpy(
+        output,
+        input + begin,
+        output_len * sizeof(wide_char_t)
+    );
+
+    output[output_len] = '\0';
+}
+
+size_t parse_read_count(const char* input, char seperator){
 	size_t len = strlen(input, 4096);
 
 	if (len == 0) return 0;
@@ -264,4 +365,36 @@ size_t parse_read_count(char* input, char seperator){
 			count++;
 	}
 	return count;
+}
+
+size_t w_parse_read_count(const wide_char_t* input, wide_char_t seperator){
+	size_t len = wstrlen(input, 4096);
+
+	if (len == 0) return 0;
+
+	size_t count = 0;
+	for (size_t i = 0; i < len; i++)
+	{
+		if(input[i] == seperator){
+			count++;
+		}
+	}
+	if(input[len - 1] != seperator){
+			count++;
+	}
+	return count;
+}
+
+void char_to_utf16_buf(const char* _char, wide_char_t* _wchar){
+    size_t len = strlen(_char, 512) + 1; // include null terminator
+    for(size_t i = 0; i < len; i++){
+        _wchar[i] = (wide_char_t)(unsigned char)_char[i];
+    }
+}
+
+void utf16_to_char_buf(const wide_char_t* _wchar, char* _char){
+    size_t len = wstrlen(_wchar, 512) + 1; // include null terminator
+    for(size_t i = 0; i < len; i++){
+        _char[i] = (unsigned char)_wchar[i];
+    }
 }

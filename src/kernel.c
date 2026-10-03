@@ -110,16 +110,16 @@ void main()
 	emmc_init();
 
 	udbP("SD init...");
-	if(emmc_init_sd_card() == SUCCESS){
+	while (emmc_init_sd_card() != SUCCESS)
+	{
+		udbP("SD init failed! Retraying...");
+	}
+	
+	if(true){
 		udbP("SD init successful!");
 		uobject_ref emmc_storage_device = vfs_get_device_ref("/devices/storage/emmc0");
-
-		// detect & mount partitions
-		if(mount_all_partitions(emmc_storage_device) == 0){
-			udbP("No any mountable partition found!");
-		}
-
-		/*
+		
+		
 		if(format_sd_gpt_with_pre_partitions(emmc_storage_device) == SUCCESS){
 			uart_print("GPT partitions created!\n");
 
@@ -147,17 +147,77 @@ void main()
 		}else{
 			uart_print("GPT partition creation failed!\n");
 		}
-		*/
+		
+	
+		// detect & mount partitions
+		if(mount_all_partitions(emmc_storage_device) == 0){
+			udbP("No any mountable partition found!");
+		}
+
+		_vfs_debug_list_under_dir_("/mounts/");
+
+		udbP("creating test folders & files");
+
+		create_directory(u"/mounts/uBOOT/", u"osurdum gio");
+		create_directory(u"/mounts/uBOOT/osurdum gio/", u"sıçış");
+		create_file(u"/mounts/uBOOT/osurdum gio/sıçış/", u"ğıÖlü dosya2231.şşş");
+		create_file(u"/mounts/uBOOT/osurdum gio/", u"ğıÖlü dosya.şşş");
+
+		create_directory(u"/mounts/uBOOT/", u"ĞĞĞÜğüĞÜĞ");
+		create_directory(u"/mounts/uBOOT/ĞĞĞÜğüĞÜĞ/", u"osirik be AĞDAWEÜTX");
+		create_file(u"/mounts/uBOOT/ĞĞĞÜğüĞÜĞ/", u"osur.ğxğ");
+		create_file(u"/mounts/uBOOT/ĞĞĞÜğüĞÜĞ/osirik be AĞDAWEÜTX/", u"glulggulŞOŞGĞIÜ.OŞŞ");
+
+		create_file(u"/mounts/uBOOT/", u"glulggulŞOŞGĞIÜ.OŞŞ");
+		
+		
+		wide_char_t** child_names = nullptr;
+		size_t child_count = 0;
+		if(get_dir_childs(u"/mounts/uBOOT/", &child_names, &child_count) == SUCCESS){
+			if(child_names != nullptr){
+				udbP("root dir ->");
+				for(int i = 0; i < child_count; i++){
+					if(child_names[i] != nullptr){
+						udbPs();
+						udbP_wSTR(child_names[i]);
+						udbPe();
+						kfree(child_names[i]);
+					}else{
+						udb();
+					}
+				}
+				kfree(child_names);
+			}
+		}
+
+		child_names = nullptr;
+		child_count = 0;
+		if(get_dir_childs(u"/mounts/uBOOT/osurdum gio/", &child_names, &child_count) == SUCCESS){
+			if(child_names != nullptr){
+				udbP("/osurdum gio/ ->");
+				for(int i = 0; i < child_count; i++){
+					if(child_names[i] != nullptr){
+						udbPs();
+						udbP_wSTR(child_names[i]);
+						udbPe();
+						kfree(child_names[i]);
+					}else{
+						udb();
+					}
+				}
+				kfree(child_names);
+			}
+		}
 
 	}else{
 		udbP("SD init failed!");
 	}
 
-	_vfs_debug_list_under_dir_("/mounts/");
-
 	udbP("dead end. standby...");
-	while(true);
-
+	asm volatile("wfe");
+	udbP("should not reach here");
+	while (true);
+	
 	// mmu is off here
 
 	// calculate kernel section sizes

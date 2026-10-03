@@ -77,8 +77,8 @@ el1_entry:
 
     /* Disable MMU and caches EARLY - before they cause issues */
     mrs     x0, SCTLR_EL1
-    bic     x0, x0, #(1 << 0)       // MMU
-    bic	 x0, x0, #(1 << 1) // unaligned access
+    bic     x0, x0, #(1 << 0)       // disable MMU
+    bic	    x0, x0, #(1 << 1)       // disable unaligned access
     bic     x0, x0, #(1 << 2)       // Data cache
     bic     x0, x0, #(1 << 12)      // Instruction cache
     msr     SCTLR_EL1, x0

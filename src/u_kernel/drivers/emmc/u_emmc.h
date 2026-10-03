@@ -178,4 +178,5 @@ uos_result emmc_write_sd_card(uint64_t block_index, size_t block_count, uint8_t*
 
 // udevice handle specific functions
 size_t emmc_get_lba_count_handle();
+size_t emmc_get_lba_size_handle();
 #endif

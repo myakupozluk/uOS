@@ -22,6 +22,15 @@
 	uart_print(msg);  \
 	uart_print("\n");
 
+#define udbPw(msg)                 \
+	uart_print("@");          \
+	uart_print(__FILE__);     \
+	uart_print(":");          \
+	uart_print_dec(__LINE__); \
+	uart_print("#[UDBridge]: ");  \
+	uart_print_w(msg);  \
+	uart_print("\n");
+
 #define udbPs()                 \
 	uart_print("@");          \
 	uart_print(__FILE__);     \
@@ -32,6 +41,7 @@
 #define udbP_HEX(u64_hex) uart_print("0x"); uart_print_hex64(u64_hex);
 #define udbP_DEC(u64_dec) uart_print_dec(u64_dec);
 #define udbP_STR(str) uart_print(str);
+#define udbP_wSTR(str) uart_print_w(str);
 #define udbPe() uart_print("\n");
 
 
@@ -78,6 +88,7 @@ void uart_input(char *buf, unsigned int buf_size);
 
 // sync send char array
 void uart_print(const char *str);
+void uart_print_w(const wide_char_t *str);
 
 // sync send hex
 void uart_print_hex8(uint8_t hex);

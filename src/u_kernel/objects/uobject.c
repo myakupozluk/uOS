@@ -143,6 +143,28 @@ udevice_emmc_storage_function_pointers* _open_emmc_storage_device_(uobject_ref d
     return (udevice_emmc_storage_function_pointers*)(storage_device->symbols);
 }
 
+udevice_storage_function_pointers* _open_storage_device_(uobject_ref device_ref){
+    uobject* storage_device_object = uobject_open_object(device_ref, UOBJECT_TYPE_DEVICE);
+
+    if(storage_device_object == nullptr){
+        udbP("FS STORAGE DEVICE ERROR: Failed to open storage device!");
+        return nullptr;
+    }
+
+    udevice* storage_device = (udevice*)(storage_device_object->obj_data);
+
+    if(storage_device->family != UDEVICE_FAMILY_STORAGE){
+        udbP("FS STORAGE DEVICE ERROR: Storage device is not a storage device!");
+        if(uobject_close_object(device_ref) == FAIL){
+            udbP("FS STORAGE DEVICE ERROR: Failed to close storage device!");
+            return nullptr;
+        }
+        return nullptr; 
+    }
+
+    return (udevice_storage_function_pointers*)(storage_device->symbols);
+}
+
 u_fs_interface* _open_filesystem_interface_(uobject_ref device_ref){
     uobject* interface_object = uobject_open_object(device_ref, UOBJECT_TYPE_FSI);  
     if(interface_object == nullptr){

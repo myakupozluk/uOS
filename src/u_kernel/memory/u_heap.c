@@ -70,14 +70,27 @@ slab_block_header *create_slab(size_t slab_size, slab_block_header *parent, UHP_
 	slab->slab_size = slab_size;
 	if (slab_size < UHP_MAX_SLAB_SIZE)
 	{
-		slab->free_table_size = (UHP_SLAB_BLOCK_SIZE - sizeof(slab_block_header)) / ((slab->slab_size * 8) + 1);
-		slab->free_table_size = ALIGN_UP(slab->free_table_size, 16); // align to 16:
-		slab->slab_count = (UHP_SLAB_BLOCK_SIZE - sizeof(slab_block_header) - slab->free_table_size) / slab->slab_size;
+	    size_t usable_size = UHP_SLAB_BLOCK_SIZE - sizeof(slab_block_header);
+
+	    size_t free_table_size = 0;
+	    size_t slab_count = 0;
+
+	    while (true)
+	    {
+	        slab_count =(usable_size - free_table_size) / slab_size;
+	        size_t required_table_size = (slab_count + 7) / 8;
+	        required_table_size = ALIGN_UP(required_table_size, 16);
+	        if (required_table_size == free_table_size) break;
+	        free_table_size = required_table_size;
+	    }
+
+	    slab->free_table_size = free_table_size;
+	    slab->slab_count = slab_count;
 	}
 	else
 	{
-		slab->free_table_size = 16;
-		slab->slab_count = 1;
+	    slab->free_table_size = 16;
+	    slab->slab_count = 1;
 	}
 	slab->free_slab_count = slab->slab_count;
 
@@ -107,7 +120,7 @@ void *UHP_malloc(size_t size, UHP_CONTEXT *ctx)
 	{
 		for (int i = 0; i < sizeof(slab_size_table) / sizeof(slab_size_table[0]); i++)
 		{
-			if (slab_size_table[i] > size)
+			if (slab_size_table[i] >= size)
 			{
 				suitable_slab_size = slab_size_table[i];
 				break;
@@ -141,8 +154,10 @@ void *UHP_malloc(size_t size, UHP_CONTEXT *ctx)
 
 				if (current->freeTable[i] != 0xff)
 				{
-					int in_byte_offset = __builtin_ctzll(~((uint64_t)current->freeTable[i]));
-					uint64_t slab_index = in_byte_offset + (i * 8);
+					uint8_t byte = current->freeTable[i];
+    				int in_byte_offset = __builtin_ctz((unsigned int)((uint8_t)~byte));
+    				uint64_t slab_index = ((uint64_t)i * 8) + (uint64_t)in_byte_offset;
+
 					// check its a valid index
 					if (slab_index >= current->slab_count)
 					{
@@ -153,6 +168,10 @@ void *UHP_malloc(size_t size, UHP_CONTEXT *ctx)
 
 					// finish
 					current->free_slab_count--;
+					//udbPs();
+					//udbP_STR("allocated slab addr: ");
+					//udbP_HEX((current->data + (slab_index * current->slab_size)));
+					//udbPe();
 					return current->data + (slab_index * current->slab_size);
 				}
 				else
@@ -186,83 +205,119 @@ void *UHP_malloc(size_t size, UHP_CONTEXT *ctx)
 	newBlock->freeTable[0] = 0b1;
 	newBlock->free_slab_count--;
 
+	//udbPs();
+	//udbP_STR("allocated slab addr: ");
+	//udbP_HEX((newBlock->data));
+	//udbPe();
 	return newBlock->data;
 }
 
 void UHP_free(void *slab, UHP_CONTEXT *ctx)
 {
-	// search for matching range
-	slab_block_header *last = nullptr;
-	slab_block_header *current = ctx->block_list;
+    if (ctx == nullptr)
+    {
+        udbP("UHP ERROR! UHP_free called with null context!");
+        return;
+    }
 
-	while (current != nullptr)
-	{
-		if ((uint64_t)slab >= (uint64_t)(current->data) && (uint64_t)slab < (uint64_t)(current->data) + (current->slab_size * current->slab_count))
-		{
-			// found a range!
-			uint64_t slab_index = ((uint64_t)slab - (uint64_t)(current->data)) / current->slab_size;
+    if (slab == nullptr)
+    {
+        udbP("UHP WARNING! Attempt to free nullptr!");
+        return;
+    }
 
-			if (((uint64_t)slab - (uint64_t)(current->data)) % current->slab_size)
-			{
-				udbP("UHP WARNING! Missaligned slab free attemp! E0");
-				return;
-			}
+    slab_block_header *last = nullptr;
+    slab_block_header *current = ctx->block_list;
 
-			if (slab_index >= current->slab_count)
-			{
-				udbP("UHP WARNING! Out of range slab free attemp! E1");
-				return;
-			}
+    uintptr_t slab_addr = (uintptr_t)slab;
 
-			if (!(current->freeTable[slab_index / 8] & ONEBIT(slab_index % 8)))
-			{
-				udbP("UHP WARNING! Double slab free attemp! E2");
-				return;
-			}
+    while (current != nullptr)
+    {
+        uintptr_t data_start = (uintptr_t)current->data;
+        uintptr_t data_end = data_start + ((uintptr_t)current->slab_size * (uintptr_t)current->slab_count);
 
-			// pass, now we can free the slab
-			current->freeTable[slab_index / 8] &= ~ONEBIT(slab_index % 8);
-			current->free_slab_count++;
+        if (slab_addr >= data_start && slab_addr < data_end){
+            uintptr_t offset = slab_addr - data_start;
 
-			// free the whole block if its empty
-			if (current->free_slab_count == current->slab_count)
-			{
-				// firstly link next block to last block if exsist
-				if (last == nullptr)
-				{
-					ctx->block_list = current->next;
-				}
-				else
-				{
-					last->next = current->next;
-				}
+            if ((offset % current->slab_size) != 0)
+            {
+                udbP("UHP WARNING! Misaligned slab free attempt! E0");
+                return;
+            }
 
-				// and then free the block
-				if (ctx->memory_region == MEMORY_REGION_MMR)
-				{
-					ump_pfree(current, current->page_count);
-				}
-				else if (ctx->memory_region == MEMORY_REGION_VMMR)
-				{
-					ump_vpfree(current, current->page_count);
-				}
-				else
-				{
-					udbP("UHP WARNING! Unknown memory region for UHP! E3");
-					return;
-				}
+            uint64_t slab_index = offset / current->slab_size;
 
-				// WARNING! current is invalid after there!
-				return;
-			}
-		}
-		last = current;
-		current = current->next;
-		continue;
-	}
+            if (slab_index >= current->slab_count)
+            {
+                udbP("UHP WARNING! Out of range slab free attempt! E1");
+                return;
+            }
 
-	udbP("UHP WARNING! Out of range slab free attemp! E4");
-	return;
+            uint8_t mask =  ONEBIT(slab_index % 8);
+
+            if ((current->freeTable[slab_index / 8] & mask) == 0)
+            {
+                udbP("UHP WARNING! Double slab free attempt! E2");
+                return;
+            }
+
+            current->freeTable[slab_index / 8] &= ~mask;
+            current->free_slab_count++;
+
+            if (current->free_slab_count == current->slab_count)
+            {
+                slab_block_header *next = current->next;
+
+                if (last == nullptr)
+                {
+                    ctx->block_list = next;
+                }
+                else
+                {
+                    last->next = next;
+                }
+
+                uint64_t page_count = current->page_count;
+
+                if (ctx->memory_region == MEMORY_REGION_MMR)
+                {
+                    ump_pfree(current, page_count);
+                }
+                else if (ctx->memory_region == MEMORY_REGION_VMMR)
+                {
+                    ump_vpfree(current, page_count);
+                }
+                else
+                {
+                    udbP("UHP WARNING! Unknown memory region for UHP! E3");
+                    return;
+                }
+
+                return;
+            }
+
+            return;
+        }
+
+        last = current;
+        current = current->next;
+    }
+
+    udbP("UHP WARNING! Out of range slab free attempt! E4");
+
+	/*
+    udbPs();
+    udbP_STR("free slab addr: ");
+    udbP_HEX(slab);
+    udbPe();
+
+    udbPs();
+    udbP_STR("free ctx: ");
+    udbP_HEX(ctx);
+    udbP_STR(" block_list: ");
+    udbP_HEX(ctx->block_list);
+    udbPe();
+	*/
 }
 
 size_t UHP_query_free_slabs(UHP_CONTEXT *ctx)
