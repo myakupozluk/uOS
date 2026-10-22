@@ -29,9 +29,9 @@ _start:
     ldr     x2, =__bss_size
     cbz     x2, bss_done
 bss_loop:
-    str     xzr, [x1], #8
-    subs    x2, x2, #8
-    b.gt    bss_loop
+    strb    wzr, [x1], #1
+    subs    x2, x2, #1
+    b.ne    bss_loop
 bss_done:
 
     /* Disable coprocessor traps */
